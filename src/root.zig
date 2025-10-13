@@ -5,3 +5,5 @@ pub const Display = @import("display.zig").Display;
 pub const Input = @import("input.zig").Input;
 pub const SearchState = @import("search.zig").SearchState;
 pub const TermWriter = @import("termWriter.zig").TermWriter;
+pub const Key = @import("input.zig").Key;
+pub const SearchResult = @import("search.zig").SearchResult;

@@ -1,10 +1,3 @@
-//const Parser = @import("parser.zig").ArgParse;
-//const Csv = @import("csv.zig").Csv;
-//const TermSize = @import("termSize.zig").TermSize;
-//const Display = @import("display.zig").Display;
-//const Input = @import("input.zig").Input;
-//const SearchState = @import("search.zig").SearchState;
-//const TermWriter = @import("termWriter.zig").TermWriter;
 const std = @import("std");
 const builtin = @import("builtin");
 const zcsv = @import("Zcsv");
@@ -15,18 +8,292 @@ const Display = zcsv.Display;
 const Input = zcsv.Input;
 const SearchState = zcsv.SearchState;
 const TermWriter = zcsv.TermWriter;
+const Key = zcsv.Key;
+const SearchResult = zcsv.SearchResult;
 
 const MAX_SEARCH_INPUT = 256;
 
+/// Represents the result of handling a key press
+const UpdateResult = struct {
+    should_quit: bool = false,
+    needs_render: bool = false,
+};
+
+/// Application state encapsulation
+const AppState = struct {
+    display: *Display,
+    csv: *Csv,
+    search_state: *SearchState,
+    search_input: []u8,
+    search_input_len: usize,
+
+    fn init(
+        display: *Display,
+        csv: *Csv,
+        search_state: *SearchState,
+        search_buffer: []u8,
+    ) AppState {
+        return .{
+            .display = display,
+            .csv = csv,
+            .search_state = search_state,
+            .search_input = search_buffer,
+            .search_input_len = 0,
+        };
+    }
+
+    /// Handle a key press in search input mode
+    fn handleSearchModeKey(self: *AppState, key: Key) !UpdateResult {
+        switch (key) {
+            .escape => {
+                // Just exit input mode, don't clear results
+                self.search_state.cancelInput();
+                self.search_input_len = 0;
+                return .{ .needs_render = true };
+            },
+
+            .enter => {
+                self.search_state.setQuery(self.search_input[0..self.search_input_len]);
+                try self.search_state.performSearch(self.csv);
+                self.search_state.input_mode = false;
+
+                if (self.search_state.matches.items.len > 0) {
+                    try self.jumpToMatch(self.search_state.matches.items[0]);
+                }
+                return .{ .needs_render = true };
+            },
+
+            .backspace => {
+                if (self.search_input_len > 0) {
+                    self.search_input_len -= 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            // These special chars should be typed as regular characters in search mode
+            .n => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = 'n';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+            .N => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = 'N';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+            .q => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = 'q';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+            .g => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = 'g';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+            .G => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = 'G';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+            .slash => {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = '/';
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .char => |c| {
+                if (self.search_input_len < MAX_SEARCH_INPUT) {
+                    self.search_input[self.search_input_len] = c;
+                    self.search_input_len += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            else => return .{ .needs_render = false },
+        }
+    }
+
+    fn handleNormalModeKey(self: *AppState, key: Key) !UpdateResult {
+        switch (key) {
+            .q => return .{ .should_quit = true },
+
+            .escape => {
+                if (self.search_state.active) {
+                    self.search_state.clearSearch();
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .slash => {
+                self.search_state.startSearch();
+                self.search_input_len = 0;
+                return .{ .needs_render = true };
+            },
+
+            .n => {
+                if (self.search_state.active and self.search_state.matches.items.len > 0) {
+                    if (self.search_state.nextMatch()) |match| {
+                        try self.jumpToMatch(match);
+                        return .{ .needs_render = true };
+                    }
+                }
+                return .{ .needs_render = false };
+            },
+
+            .N => {
+                if (self.search_state.active and self.search_state.matches.items.len > 0) {
+                    if (self.search_state.prevMatch()) |match| {
+                        try self.jumpToMatch(match);
+                        return .{ .needs_render = true };
+                    }
+                }
+                return .{ .needs_render = false };
+            },
+
+            .right => {
+                if (self.display.col_page_idx + 1 < self.display.col_pages.items.len) {
+                    self.display.col_page_idx += 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .left => {
+                if (self.display.col_page_idx > 0) {
+                    self.display.col_page_idx -= 1;
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .down => {
+                const max_row = self.csv.table.items.len - 1;
+                if (self.display.selected_row < max_row) {
+                    self.display.selected_row += 1;
+                    const row_page = self.display.selected_row / self.display.visible_rows;
+                    if (row_page != self.display.row_page_idx) {
+                        self.display.row_page_idx = row_page;
+                    }
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .up => {
+                if (self.display.selected_row > 0) {
+                    self.display.selected_row -= 1;
+                    const row_page = self.display.selected_row / self.display.visible_rows;
+                    if (row_page != self.display.row_page_idx) {
+                        self.display.row_page_idx = row_page;
+                    }
+                    return .{ .needs_render = true };
+                }
+                return .{ .needs_render = false };
+            },
+
+            .page_down => {
+                const max_row = self.csv.table.items.len - 1;
+                const old_row = self.display.selected_row;
+                self.display.selected_row = @min(self.display.selected_row + self.display.visible_rows, max_row);
+                self.display.row_page_idx = self.display.selected_row / self.display.visible_rows;
+                return .{ .needs_render = old_row != self.display.selected_row };
+            },
+
+            .page_up => {
+                const old_row = self.display.selected_row;
+                if (self.display.selected_row >= self.display.visible_rows) {
+                    self.display.selected_row -= self.display.visible_rows;
+                } else {
+                    self.display.selected_row = 0;
+                }
+                self.display.row_page_idx = self.display.selected_row / self.display.visible_rows;
+                return .{ .needs_render = old_row != self.display.selected_row };
+            },
+
+            .G => {
+                const old_row = self.display.selected_row;
+                self.display.selected_row = self.csv.table.items.len - 1;
+                self.display.row_page_idx = self.display.selected_row / self.display.visible_rows;
+                return .{ .needs_render = old_row != self.display.selected_row };
+            },
+
+            .g => {
+                const old_row = self.display.selected_row;
+                self.display.selected_row = 0;
+                self.display.row_page_idx = 0;
+                return .{ .needs_render = old_row != self.display.selected_row };
+            },
+
+            .home => {
+                const old_page = self.display.col_page_idx;
+                self.display.col_page_idx = 0;
+                return .{ .needs_render = old_page != 0 };
+            },
+
+            .end => {
+                const old_page = self.display.col_page_idx;
+                self.display.col_page_idx = self.display.col_pages.items.len - 1;
+                return .{ .needs_render = old_page != self.display.col_page_idx };
+            },
+
+            else => return .{ .needs_render = false },
+        }
+    }
+
+    /// Jump display to show a specific search match
+    fn jumpToMatch(self: *AppState, match: SearchResult) !void {
+        self.display.selected_row = match.row;
+        self.display.row_page_idx = self.display.selected_row / self.display.visible_rows;
+
+        // Jump to column page if match is not visible
+        const col_start, const col_end = self.display.get_header_idxs();
+        if (match.col < col_start or match.col >= col_end) {
+            for (self.display.col_pages.items, 0..) |start_idx, i| {
+                const end_idx = if (i + 1 < self.display.col_pages.items.len)
+                    self.display.col_pages.items[i + 1]
+                else
+                    self.csv.headers.items.len;
+
+                if (match.col >= start_idx and match.col < end_idx) {
+                    self.display.col_page_idx = i;
+                    break;
+                }
+            }
+        }
+    }
+};
+
 pub fn main() !void {
-    //ALLOCATORS
+    // ALLOCATORS
     var da = std.heap.DebugAllocator(.{}){};
     const allocator = if (builtin.mode == .Debug)
         da.allocator()
     else
         std.heap.smp_allocator;
 
-    //COMMAND LINE ARGS
+    // COMMAND LINE ARGS
     var parser = Parser.init(allocator) catch |err| {
         if (err == error.NoFileGiven) {
             Parser.printHelp();
@@ -40,7 +307,7 @@ pub fn main() !void {
     }
     defer parser.deinit();
 
-    //Csv data/parsing
+    // CSV data/parsing
     var csv = Csv.init(allocator, parser.delim);
     try csv.parse(parser.path, parser.header);
     defer csv.deinit();
@@ -65,206 +332,26 @@ pub fn main() !void {
     var search_state = SearchState.init(allocator);
     defer search_state.deinit();
 
-    var search_input: [MAX_SEARCH_INPUT]u8 = undefined;
-    var search_input_len: usize = 0;
+    // Initialize app state
+    var search_input_buffer: [MAX_SEARCH_INPUT]u8 = undefined;
+    var app = AppState.init(&display, &csv, &search_state, &search_input_buffer);
 
+    // Initial render
+    try display.render(&search_state, app.search_input[0..app.search_input_len]);
+
+    // Main event loop
     while (true) {
-        try display.render(&search_state, search_input[0..search_input_len]);
         const key = try input.readKey();
 
-        // ----------------  SEARCH-TYPING MODE  -------------------------
-        if (search_state.input_mode) {
-            switch (key) {
-                .escape => {
-                    search_state.endSearch();
-                    search_input_len = 0;
-                },
-                .enter => {
-                    search_state.setQuery(search_input[0..search_input_len]);
-                    try search_state.performSearch(&csv);
-                    search_state.input_mode = false;
+        const result = if (app.search_state.input_mode)
+            try app.handleSearchModeKey(key)
+        else
+            try app.handleNormalModeKey(key);
 
-                    // Jump to FIRST match
-                    if (search_state.matches.items.len > 0) {
-                        const first = search_state.matches.items[0];
-                        display.selected_row = first.row; // ✓ Already correct index
-                        display.row_page_idx = display.selected_row / display.visible_rows;
+        if (result.should_quit) break;
 
-                        // column-page jump (if possible)
-                        const col_start, const col_end = display.get_header_idxs();
-                        if (first.col < col_start or first.col >= col_end) {
-                            for (display.col_pages.items, 0..) |start_idx, i| {
-                                const end_idx = if (i + 1 < display.col_pages.items.len)
-                                    display.col_pages.items[i + 1]
-                                else
-                                    csv.headers.items.len; // Changed from csv.table.items[0].items.len
-                                if (first.col >= start_idx and first.col < end_idx) {
-                                    display.col_page_idx = i;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                },
-                .backspace => {
-                    if (search_input_len > 0) search_input_len -= 1;
-                },
-
-                //Dealing with special keys in search mode
-                .n => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = 'n';
-                        search_input_len += 1;
-                    }
-                },
-                .N => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = 'N';
-                        search_input_len += 1;
-                    }
-                },
-                .q => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = 'q';
-                        search_input_len += 1;
-                    }
-                },
-                .g => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = 'g';
-                        search_input_len += 1;
-                    }
-                },
-                .G => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = 'G';
-                        search_input_len += 1;
-                    }
-                },
-                .slash => {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = '/';
-                        search_input_len += 1;
-                    }
-                },
-
-                .char => |c| {
-                    if (search_input_len < MAX_SEARCH_INPUT) {
-                        search_input[search_input_len] = c;
-                        search_input_len += 1;
-                    }
-                },
-                else => {},
-            }
-            continue;
-        }
-
-        // ----------------  NORMAL MODE  --------------------------------
-        switch (key) {
-            .q => break,
-
-            .slash => {
-                search_state.startSearch();
-                search_input_len = 0;
-            },
-
-            .n => {
-                if (search_state.active and search_state.matches.items.len > 0) {
-                    if (search_state.nextMatch()) |match| {
-                        display.selected_row = match.row; // ✓ NO -1!
-                        display.row_page_idx = display.selected_row / display.visible_rows;
-
-                        const col_start, const col_end = display.get_header_idxs();
-                        if (match.col < col_start or match.col >= col_end) {
-                            for (display.col_pages.items, 0..) |start_idx, i| {
-                                const end_idx = if (i + 1 < display.col_pages.items.len)
-                                    display.col_pages.items[i + 1]
-                                else
-                                    csv.headers.items.len; // Changed
-                                if (match.col >= start_idx and match.col < end_idx) {
-                                    display.col_page_idx = i;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-
-            // ========== SHIFT+N KEY (previous match) ==========
-            .N => {
-                if (search_state.active and search_state.matches.items.len > 0) {
-                    if (search_state.prevMatch()) |match| {
-                        display.selected_row = match.row; // ✓ NO -1!
-                        display.row_page_idx = display.selected_row / display.visible_rows;
-
-                        const col_start, const col_end = display.get_header_idxs();
-                        if (match.col < col_start or match.col >= col_end) {
-                            for (display.col_pages.items, 0..) |start_idx, i| {
-                                const end_idx = if (i + 1 < display.col_pages.items.len)
-                                    display.col_pages.items[i + 1]
-                                else
-                                    csv.headers.items.len; // Changed
-                                if (match.col >= start_idx and match.col < end_idx) {
-                                    display.col_page_idx = i;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-
-            .right => {
-                if (display.col_page_idx + 1 < display.col_pages.items.len)
-                    display.col_page_idx += 1;
-            },
-            .left => {
-                if (display.col_page_idx > 0) display.col_page_idx -= 1;
-            },
-
-            .down => {
-                const max_row = csv.table.items.len - 1; // Changed from len - 2
-                if (display.selected_row < max_row) {
-                    display.selected_row += 1;
-                    const row_page = display.selected_row / display.visible_rows;
-                    if (row_page != display.row_page_idx) display.row_page_idx = row_page;
-                }
-            },
-
-            .page_down => {
-                const max_row = csv.table.items.len - 1; // Changed from len - 2
-                display.selected_row = @min(display.selected_row + display.visible_rows, max_row);
-                display.row_page_idx = display.selected_row / display.visible_rows;
-            },
-
-            .G => {
-                display.selected_row = csv.table.items.len - 1; // Changed from len - 2
-                display.row_page_idx = display.selected_row / display.visible_rows;
-            },
-            .up => {
-                if (display.selected_row > 0) {
-                    display.selected_row -= 1;
-                    const row_page = display.selected_row / display.visible_rows;
-                    if (row_page != display.row_page_idx) display.row_page_idx = row_page;
-                }
-            },
-
-            .page_up => {
-                if (display.selected_row >= display.visible_rows)
-                    display.selected_row -= display.visible_rows
-                else
-                    display.selected_row = 0;
-                display.row_page_idx = display.selected_row / display.visible_rows;
-            },
-            .home => display.col_page_idx = 0,
-            .end => display.col_page_idx = display.col_pages.items.len - 1,
-            .g => {
-                display.selected_row = 0;
-                display.row_page_idx = 0;
-            },
-
-            else => {},
+        if (result.needs_render) {
+            try display.render(&search_state, app.search_input[0..app.search_input_len]);
         }
     }
 

@@ -12,7 +12,8 @@ pub const SearchState = struct {
     matches: std.ArrayList(SearchResult),
     current_match: usize,
     active: bool,
-    input_mode: bool, // Whether we're entering a search query
+    input_mode: bool,
+    updated: bool,
 
     pub fn init(allocator: std.mem.Allocator) SearchState {
         return SearchState{
@@ -22,6 +23,7 @@ pub const SearchState = struct {
             .current_match = 0,
             .active = false,
             .input_mode = false,
+            .updated = false,
         };
     }
 
@@ -33,16 +35,29 @@ pub const SearchState = struct {
         self.active = true;
         self.input_mode = true;
         self.current_match = 0;
-        self.matches.clearAndFree(self.allocator);
+        self.updated = true;
     }
 
-    pub fn endSearch(self: *SearchState) void {
+    // Cancel search input mode (but keep previous results if any)
+    pub fn cancelInput(self: *SearchState) void {
+        self.input_mode = false;
+        self.updated = true;
+        // Don't touch active or matches - might have previous search
+    }
+
+    // Completely clear search state and results
+    pub fn clearSearch(self: *SearchState) void {
         self.active = false;
         self.input_mode = false;
+        self.matches.clearAndFree(self.allocator);
+        self.current_match = 0;
+        self.query = "";
+        self.updated = true;
     }
 
     pub fn setQuery(self: *SearchState, query: []const u8) void {
         self.query = query;
+        self.updated = true;
     }
 
     pub fn addMatch(self: *SearchState, row: usize, col: usize) !void {
@@ -51,26 +66,29 @@ pub const SearchState = struct {
 
     pub fn nextMatch(self: *SearchState) ?SearchResult {
         if (self.matches.items.len == 0) return null;
-        self.current_match = (self.current_match + 1) % self.matches.items.len; // UPDATE
+        self.current_match = (self.current_match + 1) % self.matches.items.len;
+        self.updated = true;
         return self.matches.items[self.current_match];
     }
 
     pub fn prevMatch(self: *SearchState) ?SearchResult {
         if (self.matches.items.len == 0) return null;
         if (self.current_match == 0)
-            self.current_match = self.matches.items.len - 1 // UPDATE
+            self.current_match = self.matches.items.len - 1
         else
-            self.current_match -= 1; // UPDATE
+            self.current_match -= 1;
+        self.updated = true;
         return self.matches.items[self.current_match];
     }
 
     pub fn getCurrentMatch(self: *SearchState) ?SearchResult {
         if (self.matches.items.len == 0) return null;
+        self.updated = true;
         return self.matches.items[self.current_match];
     }
 
-    // Perform case-insensitive search
     pub fn performSearch(self: *SearchState, csv: *Csv) !void {
+        self.updated = true;
         self.matches.clearAndFree(self.allocator);
 
         if (self.query.len == 0) return;
