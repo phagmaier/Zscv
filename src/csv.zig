@@ -124,7 +124,7 @@ pub const Csv = struct {
                 try row.append(self.allocator, col_copy);
                 self.skip_line_ending();
                 try self.maybe_set_col_max();
-                self.col_size = 0; // ← ADD THIS
+                self.col_size = 0;
                 self.col_idx = 0;
                 return true;
             } else if (char == self.delimiter) {
@@ -135,7 +135,7 @@ pub const Csv = struct {
                 try row.append(self.allocator, col_copy);
                 self.idx += 1;
                 try self.maybe_set_col_max();
-                self.col_size = 0; // ← ADD THIS
+                self.col_size = 0;
                 self.col_idx += 1;
                 return false;
             } else if (char == '"') {
@@ -154,19 +154,50 @@ pub const Csv = struct {
         return true;
     }
 
+    /// Check if a row is empty (only whitespace or single space placeholders)
+    fn isRowEmpty(row: *const std.ArrayList([]const u8)) bool {
+        if (row.items.len == 0) return true;
+
+        // If only one cell and it's just whitespace, consider empty
+        if (row.items.len == 1) {
+            const cell = row.items[0];
+            if (cell.len == 0) return true;
+
+            // Check if only whitespace
+            for (cell) |c| {
+                if (c != ' ' and c != '\t' and c != '\r' and c != '\n') {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     fn parse_row(self: *Csv) !void {
         var row = std.ArrayList([]const u8).empty;
         errdefer {
             for (row.items) |cell| {
                 self.allocator.free(cell);
-                row.deinit(self.allocator);
             }
+            row.deinit(self.allocator);
         }
 
         var done = false;
         while (self.idx < self.data.len and !done) {
             done = try self.parse_col(&row);
         }
+
+        // Skip empty rows (like blank lines at end of file)
+        if (isRowEmpty(&row)) {
+            for (row.items) |cell| {
+                self.allocator.free(cell);
+            }
+            row.deinit(self.allocator);
+            return;
+        }
+
         std.debug.assert(row.items.len > 0);
         try self.table.append(self.allocator, row);
     }
