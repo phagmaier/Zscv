@@ -137,9 +137,7 @@ zcsv --no-header --no-row-numbers raw-data.csv
 | Key | Action |
 |-----|--------|
 | `q` | Quit viewer |
-|-----|--------|
 | `?` | Help viewer |
-|-----|--------|
 
 ---
 
