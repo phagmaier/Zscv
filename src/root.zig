@@ -7,3 +7,6 @@ pub const SearchState = @import("search.zig").SearchState;
 pub const TermWriter = @import("termWriter.zig").TermWriter;
 pub const Key = @import("input.zig").Key;
 pub const SearchResult = @import("search.zig").SearchResult;
+pub const String = @import("string.zig").String;
+pub const AppState = @import("appState.zig").AppState;
+pub const Mode = @import("appState.zig").Mode;

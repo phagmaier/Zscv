@@ -14,6 +14,7 @@ pub const Key = union(enum) {
     G,
     q,
     slash,
+    colon,
     n,
     N,
     escape,
@@ -67,6 +68,7 @@ pub const Input = struct {
                 'n' => Key.n,
                 'N' => Key.N,
                 '/' => Key.slash,
+                ':' => Key.colon,
                 0x1b => Key.escape, // ESC key
                 '\r', '\n' => Key.enter,
                 0x7f => Key.backspace, // Backspace

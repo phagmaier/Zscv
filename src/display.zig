@@ -331,7 +331,7 @@ pub const Display = struct {
     }
 
     /// Render status bar at bottom of screen
-    fn renderStatusBar(self: *Display, search_state: *const SearchState) !void {
+    fn renderStatusBar(self: *Display, search_state: *const SearchState, input_buffer: []const u8) !void {
         const total_rows = self.csv.table.items.len;
         const total_col_pages = self.col_pages.items.len;
         const current_row = self.selected_row + 1;
@@ -347,7 +347,7 @@ pub const Display = struct {
                 total_rows,
                 current_col_page,
                 total_col_pages,
-                search_state.query,
+                input_buffer,
                 search_state.current_match + 1,
                 search_state.matches.items.len,
             });
@@ -357,7 +357,7 @@ pub const Display = struct {
                 total_rows,
                 current_col_page,
                 total_col_pages,
-                search_state.query,
+                input_buffer,
             });
         } else {
             try self.stdout.print("Row {d}/{d} | Col Page {d}/{d} | ←→:cols ↑↓:rows /:search q:quit", .{
@@ -413,11 +413,10 @@ pub const Display = struct {
 
         try self.renderBottomBorder(col_widths);
 
-        // Render either search input or status bar
         if (search_state.input_mode) {
             try self.renderSearchInput(input_buffer);
         } else {
-            try self.renderStatusBar(search_state);
+            try self.renderStatusBar(search_state, input_buffer);
         }
     }
 };

@@ -8,22 +8,20 @@ pub const SearchResult = struct {
 
 pub const SearchState = struct {
     allocator: std.mem.Allocator,
-    query: []const u8,
     matches: std.ArrayList(SearchResult),
     current_match: usize,
     active: bool,
-    input_mode: bool,
     updated: bool,
+    input_mode: bool,
 
     pub fn init(allocator: std.mem.Allocator) SearchState {
         return SearchState{
             .allocator = allocator,
-            .query = "",
             .matches = std.ArrayList(SearchResult).empty,
             .current_match = 0,
             .active = false,
-            .input_mode = false,
             .updated = false,
+            .input_mode = false,
         };
     }
 
@@ -33,30 +31,22 @@ pub const SearchState = struct {
 
     pub fn startSearch(self: *SearchState) void {
         self.active = true;
-        self.input_mode = true;
         self.current_match = 0;
         self.updated = true;
+        self.input_mode = true;
     }
 
-    // Cancel search input mode (but keep previous results if any)
     pub fn cancelInput(self: *SearchState) void {
         self.input_mode = false;
         self.updated = true;
-        // Don't touch active or matches - might have previous search
     }
 
     // Completely clear search state and results
     pub fn clearSearch(self: *SearchState) void {
-        self.active = false;
         self.input_mode = false;
+        self.active = false;
         self.matches.clearAndFree(self.allocator);
         self.current_match = 0;
-        self.query = "";
-        self.updated = true;
-    }
-
-    pub fn setQuery(self: *SearchState, query: []const u8) void {
-        self.query = query;
         self.updated = true;
     }
 
@@ -87,13 +77,13 @@ pub const SearchState = struct {
         return self.matches.items[self.current_match];
     }
 
-    pub fn performSearch(self: *SearchState, csv: *Csv) !void {
+    pub fn performSearch(self: *SearchState, csv: *Csv, query: []const u8) !void {
         self.updated = true;
         self.matches.clearAndFree(self.allocator);
 
-        if (self.query.len == 0) return;
+        if (query.len == 0) return;
 
-        const query_lower = try std.ascii.allocLowerString(self.allocator, self.query);
+        const query_lower = try std.ascii.allocLowerString(self.allocator, query);
         defer self.allocator.free(query_lower);
 
         for (csv.table.items, 0..) |row, row_idx| {
