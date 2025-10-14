@@ -137,6 +137,9 @@ zcsv --no-header --no-row-numbers raw-data.csv
 | Key | Action |
 |-----|--------|
 | `q` | Quit viewer |
+|-----|--------|
+| `?` | Help viewer |
+|-----|--------|
 
 ---
 
@@ -161,13 +164,13 @@ zcsv --no-header --no-row-numbers raw-data.csv
 - Colored UI  
 
 ### 🚧 Phase 1 — Fix Annoyances *(Current)*
-- [ ] Clear search highlight (Esc twice)  
-- [ ] Redraw only on state changes  
-- [ ] Add in-app help screen (`?`)  
+- [x] Clear search highlight (Esc twice)  
+- [x] Redraw only on state changes  
+- [x] Add in-app help screen (`?`)  
 
 ### 🧠 Phase 2 — Power Features *(Next)*
 - [ ] Expand cell view (`Enter`)  
-- [ ] Jump to row/column (`:123`)  
+- [x] Jump to row/column (`:123`)  
 - [ ] Sort by column (`s` then number)  
 - [ ] More Vim motions (`Ctrl+D/U`, `H/M/L`)  
 
