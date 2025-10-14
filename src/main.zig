@@ -12,7 +12,6 @@ const Key = zcsv.Key;
 const SearchResult = zcsv.SearchResult;
 const AppState = zcsv.AppState;
 const Mode = zcsv.Mode;
-const InputMode = zcsv.InputMode;
 
 pub fn main() !void {
     // ALLOCATORS
@@ -61,27 +60,25 @@ pub fn main() !void {
     var search_state = SearchState.init(allocator);
     defer search_state.deinit();
 
-    // Initialize app state
     var app = try AppState.init(&display, &csv, &search_state);
 
-    // Initial render
-    try display.render(&search_state, app.string.get_slice());
+    try display.render(&search_state, app.string.get_slice(), app.mode);
 
-    // Main event loop
     var update = false;
     while (true) {
         if (app.mode == Mode.quit) {
             break;
         }
         if (update) {
-            try display.render(&search_state, app.string.get_slice());
+            //try stdout.clear();
+            try display.render(&search_state, app.string.get_slice(), app.mode);
         }
 
         const key = try input.readKey();
         update = switch (app.mode) {
             Mode.normal => try app.handleNormalModeKey(key),
             Mode.search => try app.handleSearchModeKey(key),
-            Mode.colon => try app.handle_colon_key(key),
+            Mode.colon => try app.handleColonKey(key),
             else => true,
         };
     }

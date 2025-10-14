@@ -3,6 +3,7 @@ const TermWriter = @import("termWriter.zig").TermWriter;
 const Csv = @import("csv.zig").Csv;
 const TermSize = @import("termSize.zig").TermSize;
 const SearchState = @import("search.zig").SearchState;
+const Mode = @import("mode.zig").Mode;
 
 const BoxChars = struct {
     const horizontal = "─";
@@ -27,12 +28,6 @@ const Colors = struct {
     const ROW_WITH_MATCH_BG = 236;
     const STATUS_BG = 236;
     const STATUS_FG = 255;
-};
-
-pub const InputMode = enum {
-    none,
-    search,
-    colon,
 };
 
 pub const Display = struct {
@@ -494,7 +489,146 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    pub fn render(self: *Display, search_state: *const SearchState, input_buffer: []const u8, input_mode: InputMode) !void {
+    fn renderHelp(self: *Display) !void {
+        const help_line_count = 20;
+        const start_row = (self.tSize.rows - help_line_count) / 2;
+
+        // Calculate center position for the help box
+        const box_width: usize = 70;
+        const start_col = if (self.tSize.cols > box_width) (self.tSize.cols - box_width) / 2 else 1;
+
+        var current_row = start_row;
+
+        // Draw semi-transparent background overlay effect
+        try self.stdout.setBgColor(234);
+
+        // Title
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.setBgColor(24); // Deep blue
+        try self.stdout.setColor(231); // Bright white
+        try self.stdout.write(" ");
+        for (0..box_width - 2) |_| try self.stdout.write(" ");
+        try self.stdout.write(" ");
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("  ╔═══════════════════════════════════════════════════════════════╗  ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("  ║              📊 CSV Viewer - Quick Reference 📊              ║  ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("  ╚═══════════════════════════════════════════════════════════════╝  ", .{});
+        current_row += 1;
+
+        try self.stdout.resetStyle();
+        try self.stdout.setBgColor(237);
+        try self.stdout.setColor(231);
+
+        // Navigation section
+        current_row += 1;
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.write("  ");
+        try self.stdout.setColor(120); // Green for section headers
+        try self.stdout.write("NAVIGATION");
+        try self.stdout.setColor(231);
+        for (0..box_width - 14) |_| try self.stdout.write(" ");
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    ↑/↓  or  k/j     Move up/down through rows                     ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    ←/→  or  h/l     Navigate between column pages                  ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    g / G             Jump to next/previous search match            ", .{});
+        current_row += 1;
+
+        // Search section
+        current_row += 1;
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.write("  ");
+        try self.stdout.setColor(220); // Yellow for section headers
+        try self.stdout.write("SEARCH");
+        try self.stdout.setColor(231);
+        for (0..box_width - 10) |_| try self.stdout.write(" ");
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    /                 Start search (highlights all matches)         ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    n / N             Jump to next/previous search match            ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    Escape            Clear search highlighting                     ", .{});
+        current_row += 1;
+
+        // Commands section
+        current_row += 1;
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.write("  ");
+        try self.stdout.setColor(177); // Purple for section headers
+        try self.stdout.write("COMMANDS");
+        try self.stdout.setColor(231);
+        for (0..box_width - 12) |_| try self.stdout.write(" ");
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    :                 Enter command mode                            ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    :<number>         Jump to specific row number                   ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    Escape            Exit command mode                             ", .{});
+        current_row += 1;
+
+        // General section
+        current_row += 1;
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.write("  ");
+        try self.stdout.setColor(81); // Cyan for section headers
+        try self.stdout.write("GENERAL");
+        try self.stdout.setColor(231);
+        for (0..box_width - 11) |_| try self.stdout.write(" ");
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    q                 Quit the viewer                               ", .{});
+        current_row += 1;
+
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.print("    ?                 Toggle this help screen                       ", .{});
+        current_row += 1;
+
+        // Footer
+        current_row += 1;
+        try self.stdout.moveTo(current_row, start_col);
+        try self.stdout.setBgColor(24);
+        try self.stdout.setColor(250);
+        const footer = "Press any key to continue...";
+        const padding = (box_width - footer.len) / 2;
+        try self.stdout.write(" ");
+        for (0..padding - 1) |_| try self.stdout.write(" ");
+        try self.stdout.write(footer);
+        for (0..padding - 1) |_| try self.stdout.write(" ");
+        try self.stdout.write(" ");
+
+        try self.stdout.resetStyle();
+        try self.stdout.flush();
+    }
+
+    pub fn render(self: *Display, search_state: *const SearchState, input_buffer: []const u8, mode: Mode) !void {
         try self.stdout.clear();
         try self.stdout.hideCursor();
 
@@ -517,11 +651,12 @@ pub const Display = struct {
 
         try self.renderBottomBorder(col_widths);
 
-        // NEW: Check input_mode instead of search_state.input_mode
-        switch (input_mode) {
+        switch (mode) {
             .search => try self.renderSearchInput(input_buffer),
             .colon => try self.renderColonInput(input_buffer),
-            .none => try self.renderStatusBar(search_state, input_buffer),
+            .normal => try self.renderStatusBar(search_state, input_buffer),
+            .help => try self.renderHelp(),
+            else => try self.renderStatusBar(search_state, input_buffer),
         }
     }
 };
