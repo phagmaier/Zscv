@@ -5,13 +5,7 @@ const Csv = @import("csv.zig").Csv;
 const SearchState = @import("search.zig").SearchState;
 pub const SearchResult = @import("search.zig").SearchResult;
 const Key = @import("input.zig").Key;
-
-pub const Mode = enum {
-    normal,
-    search,
-    colon,
-    quit,
-};
+const Mode = @import("mode.zig").Mode;
 
 /// Application state encapsulation
 pub const AppState = struct {
@@ -29,6 +23,7 @@ pub const AppState = struct {
             .mode = Mode.normal,
         };
     }
+
     fn add_char(self: *AppState, char: u8) bool {
         const val = self.string.append(char);
         if (val) {
@@ -61,6 +56,9 @@ pub const AppState = struct {
                     return true;
                 }
                 return false;
+            },
+            .question => {
+                return self.add_char('n');
             },
 
             .n => {
@@ -120,7 +118,14 @@ pub const AppState = struct {
             .colon => {
                 self.mode = Mode.colon;
                 self.string.clear();
-                return self.add_char(':');
+                //return self.add_char(':');
+                return true;
+            },
+
+            .question => {
+                self.mode = Mode.help;
+                self.string.clear();
+                return true;
             },
 
             .n => {
@@ -235,7 +240,7 @@ pub const AppState = struct {
 
     //Add colon logic you basically just read shit then on enter check if number
     //may add other functunality later for now just try to jump to line
-    pub fn handle_colon_key(self: *AppState, key: Key) !bool {
+    pub fn handleColonKey(self: *AppState, key: Key) !bool {
         switch (key) {
             .escape => {
                 self.mode = Mode.normal;
@@ -245,7 +250,7 @@ pub const AppState = struct {
             },
 
             .enter => {
-                try self.handle_col_input();
+                try self.handleColInput();
                 self.string.clear();
                 self.mode = Mode.normal;
                 return true;
@@ -281,6 +286,10 @@ pub const AppState = struct {
                 return self.add_char(':');
             },
 
+            .question => {
+                return self.add_char('?');
+            },
+
             .char => |c| {
                 return self.add_char(c);
             },
@@ -289,31 +298,38 @@ pub const AppState = struct {
         }
     }
 
+    pub fn handleHelpKey(self: *AppState) bool {
+        self.mode = Mode.normal;
+        self.search_state.cancelInput();
+        self.string.clear();
+        return true;
+    }
+
     //add more commands here currently it just handles q
-    fn handle_colon_command(self: *AppState, command: []const u8) void {
+    fn handleColonCommand(self: *AppState, command: []const u8) void {
         if (std.mem.eql(u8, "q", command)) {
             self.mode = Mode.quit;
         }
     }
 
-    fn handle_col_input(self: *AppState) !void {
-        //this just means only the colon is here
-        if (self.string.len == 1) {
+    fn handleColInput(self: *AppState) !void {
+        if (self.string.len == 0) {
             return;
         }
-        const command = self.string.data[1..self.string.len];
+        const command = self.string.get_slice();
         //number can't be larger than 20 digits
         if (command.len > 20) {
-            self.handle_colon_command(command);
+            self.handleColonCommand(command);
         }
         for (command) |c| {
             if (!std.ascii.isDigit(c)) {
-                self.handle_colon_command(command);
+                self.handleColonCommand(command);
                 return;
             }
         }
-        const row = try std.fmt.parseInt(usize, command, 10);
-        if (row != self.display.selected_row and row <= self.csv.data.len) {
+        var row = try std.fmt.parseInt(usize, command, 10);
+        row = if (row == 0) 0 else row - 1;
+        if (row != self.display.selected_row and row < self.csv.table.items.len) {
             self.display.selected_row = row;
             self.display.row_page_idx = row / self.display.visible_rows;
         }

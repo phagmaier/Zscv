@@ -43,7 +43,13 @@ EXECUTABLE="./zig-out/bin/Zcsv"
 if [ "$#" -eq 0 ]; then
     # No arguments remain, so run with the default example
     echo "No file specified, running with default example..."
+<<<<<<< HEAD
     $EXECUTABLE ./Data/data.csv
+=======
+#    $EXECUTABLE ./Data/cities.csv
+    $EXECUTABLE ./Data/data.csv
+#    $EXECUTABLE ./Data/large.csv
+>>>>>>> dev
 else
     # Arguments remain, pass them all to the program
     echo "Running with specified arguments..."

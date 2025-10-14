@@ -12,6 +12,8 @@ const Key = zcsv.Key;
 const SearchResult = zcsv.SearchResult;
 const AppState = zcsv.AppState;
 const Mode = zcsv.Mode;
+const MIN_TERM_WIDTH: usize = 50;
+const MIN_TERM_HEIGHT: usize = 25;
 
 pub fn main() !void {
     // ALLOCATORS
@@ -29,6 +31,12 @@ pub fn main() !void {
         return err;
     };
 
+    var term_size = try TermSize.init();
+    if (term_size.cols < MIN_TERM_WIDTH or term_size.rows < MIN_TERM_HEIGHT) {
+        std.debug.print("Terminal is too small cannot render properly\nMin rows: {d} Min Cols: {d}\n", .{ term_size.rows, term_size.cols });
+        return;
+    }
+
     if (parser.help) {
         Parser.printHelp();
         return;
@@ -40,7 +48,6 @@ pub fn main() !void {
     try csv.parse(parser.path, parser.header);
     defer csv.deinit();
 
-    var term_size = try TermSize.init();
     var stdout: TermWriter = undefined;
     stdout.init();
 
@@ -60,27 +67,26 @@ pub fn main() !void {
     var search_state = SearchState.init(allocator);
     defer search_state.deinit();
 
-    // Initialize app state
     var app = try AppState.init(&display, &csv, &search_state);
 
-    // Initial render
-    try display.render(&search_state, app.string.get_slice());
+    try display.render(&search_state, app.string.get_slice(), app.mode);
 
-    // Main event loop
     var update = false;
     while (true) {
         if (app.mode == Mode.quit) {
             break;
         }
         if (update) {
-            try display.render(&search_state, app.string.get_slice());
+            //try stdout.clear();
+            try display.render(&search_state, app.string.get_slice(), app.mode);
         }
 
         const key = try input.readKey();
         update = switch (app.mode) {
             Mode.normal => try app.handleNormalModeKey(key),
             Mode.search => try app.handleSearchModeKey(key),
-            Mode.colon => try app.handle_colon_key(key),
+            Mode.colon => try app.handleColonKey(key),
+            Mode.help => app.handleHelpKey(),
             else => true,
         };
     }

@@ -9,4 +9,4 @@ pub const Key = @import("input.zig").Key;
 pub const SearchResult = @import("search.zig").SearchResult;
 pub const String = @import("string.zig").String;
 pub const AppState = @import("appState.zig").AppState;
-pub const Mode = @import("appState.zig").Mode;
+pub const Mode = @import("mode.zig").Mode;

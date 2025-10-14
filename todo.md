@@ -1,4 +1,5 @@
 **SHOULD DO:**
+1.  - Create a global enum called mode that has quit search and colon that way main, display, and app can use it this will tell display how to render and set the state feels dumb to convert the two 
 3.  - **Cell expansion** - Press Enter to see full cell content in a modal/overlay. Really useful for long text.
 4.  - **More vim navigation** - `Ctrl+D`/`Ctrl+U` for half-page, `H`/`M`/`L` for screen top/middle/bottom. Feels pro.
 
