@@ -12,6 +12,7 @@ const Key = zcsv.Key;
 const SearchResult = zcsv.SearchResult;
 const AppState = zcsv.AppState;
 const Mode = zcsv.Mode;
+const InputMode = zcsv.InputMode;
 
 pub fn main() !void {
     // ALLOCATORS

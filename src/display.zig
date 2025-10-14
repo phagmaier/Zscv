@@ -18,7 +18,6 @@ const BoxChars = struct {
     const t_left = "┤";
 };
 
-// Color constants for easy theming
 const Colors = struct {
     const SELECTED_BG = 238;
     const SELECTED_FG = 231;
@@ -30,23 +29,28 @@ const Colors = struct {
     const STATUS_FG = 255;
 };
 
+pub const InputMode = enum {
+    none,
+    search,
+    colon,
+};
+
 pub const Display = struct {
-    // Layout constants - clear and well-named
-    const COUNT_COL_WIDTH: usize = 10; // Width of row number column
-    const MIN_COL_WIDTH: usize = 8; // Minimum content width for a data column
-    const MAX_COL_WIDTH: usize = 50; // Maximum width for any single column
-    const CELL_PADDING: usize = 2; // Space inside cell (1 char each side)
-    const MIN_TERM_WIDTH: usize = 40; // Minimum terminal width to render anything
-    const MARGIN_PERCENT: usize = 4; // 2% on each side = 4% total
-    const STATUS_ROWS: usize = 2; // Status bar + one blank line
+    const COUNT_COL_WIDTH: usize = 10;
+    const MIN_COL_WIDTH: usize = 8;
+    const MAX_COL_WIDTH: usize = 50;
+    const CELL_PADDING: usize = 2;
+    const MIN_TERM_WIDTH: usize = 40;
+    const MARGIN_COLS: usize = 2; // Minimal margin - just 1 column on each side
+    const STATUS_ROWS: usize = 2;
 
     allocator: std.mem.Allocator,
     csv: *Csv,
     stdout: *TermWriter,
     tSize: *TermSize,
     visible_rows: usize,
-    col_pages: std.ArrayList(usize), // Starting column index for each page
-    col_widths: std.ArrayList(usize), // Actual display width for each column (includes padding)
+    col_pages: std.ArrayList(usize),
+    col_widths: std.ArrayList(usize),
     col_page_idx: usize,
     row_page_idx: usize,
     selected_row: usize,
@@ -57,7 +61,7 @@ pub const Display = struct {
         csv: *Csv,
         stdout: *TermWriter,
         term_size: *TermSize,
-        _: usize, // maxCol - we'll calculate this smartly now
+        _: usize,
         show_count: bool,
     ) !Display {
         var display = Display{
@@ -93,35 +97,17 @@ pub const Display = struct {
         return .{ start_idx, end_idx };
     }
 
-    /// Calculate the usable width for displaying the table
     fn getUsableWidth(self: *Display) usize {
         const term_width = self.tSize.cols;
-
-        // Calculate margins (2% on each side)
-        const margin = @max(1, (term_width * MARGIN_PERCENT) / 100);
-
-        // Usable width = terminal - both margins
+        const margin = MARGIN_COLS;
         const base_width = if (term_width > margin) term_width - margin else term_width;
-
-        // Subtract row count column if shown
-        const count_width = if (self.show_count) COUNT_COL_WIDTH + 1 else 0; // +1 for border
-
+        const count_width = if (self.show_count) COUNT_COL_WIDTH + 1 else 0;
         return if (base_width > count_width) base_width - count_width else base_width;
     }
 
-    /// Calculate optimal width for a single column based on its content
     fn getOptimalColumnWidth(content_max: usize) usize {
-        // Content width clamped between MIN and MAX
         const content_width = @min(@max(content_max, MIN_COL_WIDTH), MAX_COL_WIDTH);
-        // Add padding (space on each side of content)
         return content_width + CELL_PADDING;
-    }
-
-    /// Calculate how many borders we need for N columns
-    fn getBorderWidth(num_cols: usize) usize {
-        // Left border + (N-1) internal borders + right border = N+1 borders
-        // But we already count the row number border in getUsableWidth if shown
-        return num_cols + 1;
     }
 
     fn calculateLayout(self: *Display) !void {
@@ -133,7 +119,6 @@ pub const Display = struct {
         const usable_width = self.getUsableWidth();
         const num_cols = self.csv.col_max.items.len;
 
-        // First, calculate ideal width for each column
         var ideal_widths = try self.allocator.alloc(usize, num_cols);
         defer self.allocator.free(ideal_widths);
 
@@ -143,74 +128,108 @@ pub const Display = struct {
             total_ideal += ideal_widths[i];
         }
 
-        // Calculate how much width borders will take for all columns
-        const all_borders_width = getBorderWidth(num_cols);
-        const total_needed = total_ideal + all_borders_width;
+        const all_borders = num_cols + 1;
+        const total_needed = total_ideal + all_borders;
 
-        // Case 1: All columns fit! Expand them proportionally to use available space
         if (total_needed <= usable_width) {
             const extra_space = usable_width - total_needed;
             try self.distributeSinglePage(ideal_widths, extra_space);
-        }
-        // Case 2: Need multiple pages - smart page breaks
-        else {
+        } else {
             try self.distributeMultiplePages(ideal_widths, usable_width);
         }
 
-        // Calculate visible rows (terminal height - header - borders - status)
-        const header_rows: usize = 4; // top border + header + separator + partial bottom
+        const header_rows: usize = 4;
         self.visible_rows = if (self.tSize.rows > header_rows + STATUS_ROWS)
             self.tSize.rows - header_rows - STATUS_ROWS
         else
             1;
     }
 
-    /// Distribute columns when they all fit on one page - expand to fill space
     fn distributeSinglePage(self: *Display, ideal_widths: []const usize, extra_space: usize) !void {
-        try self.col_pages.append(self.allocator, 0); // Single page starting at column 0
+        try self.col_pages.append(self.allocator, 0);
 
-        const num_cols = ideal_widths.len;
-        var remaining_space = extra_space;
+        if (extra_space == 0) {
+            for (ideal_widths) |w| {
+                try self.col_widths.append(self.allocator, w);
+            }
+            return;
+        }
 
-        // Distribute extra space proportionally based on ideal widths
+        const total_ideal = sumWidths(ideal_widths);
+        var remaining = extra_space;
+
         for (ideal_widths, 0..) |ideal, i| {
-            const proportion = if (i < num_cols - 1)
-                (ideal * extra_space) / (sumWidths(ideal_widths))
-            else
-                remaining_space; // Give all remaining to last column
+            const is_last = (i == ideal_widths.len - 1);
+            const extra = if (is_last)
+                remaining
+            else blk: {
+                const prop = (ideal * extra_space) / total_ideal;
+                remaining -= prop;
+                break :blk prop;
+            };
 
-            const final_width = ideal + proportion;
-            try self.col_widths.append(self.allocator, final_width);
-            remaining_space -= proportion;
+            try self.col_widths.append(self.allocator, ideal + extra);
         }
     }
 
-    /// Distribute columns across multiple pages - maximize columns per page
     fn distributeMultiplePages(self: *Display, ideal_widths: []const usize, usable_width: usize) !void {
-        try self.col_pages.append(self.allocator, 0); // First page starts at 0
+        try self.col_pages.append(self.allocator, 0);
 
-        var current_col: usize = 0;
-        var current_width: usize = 0;
+        var page_cols = std.ArrayList(usize).empty;
+        defer page_cols.deinit(self.allocator);
 
-        while (current_col < ideal_widths.len) {
-            const col_width = ideal_widths[current_col];
-            const borders_so_far = getBorderWidth(current_col - self.col_pages.items[self.col_pages.items.len - 1] + 1);
-            const needed = current_width + col_width + borders_so_far;
+        var col_idx: usize = 0;
 
-            if (needed > usable_width and current_col > self.col_pages.items[self.col_pages.items.len - 1]) {
-                // Start new page
-                try self.col_pages.append(self.allocator, current_col);
-                current_width = 0;
+        while (col_idx < ideal_widths.len) {
+            try page_cols.append(self.allocator, ideal_widths[col_idx]);
+
+            const page_total = sumWidths(page_cols.items);
+            const page_borders = page_cols.items.len + 1;
+            const page_needed = page_total + page_borders;
+
+            if (page_needed > usable_width and page_cols.items.len > 1) {
+                _ = page_cols.pop();
+                try self.finalizePageColumns(&page_cols, usable_width);
+                try self.col_pages.append(self.allocator, col_idx);
+                page_cols.clearRetainingCapacity();
             } else {
-                // Add column to current page
-                try self.col_widths.append(self.allocator, col_width);
-                current_width += col_width;
-                current_col += 1;
+                col_idx += 1;
+            }
+        }
+
+        if (page_cols.items.len > 0) {
+            try self.finalizePageColumns(&page_cols, usable_width);
+        }
+    }
+
+    fn finalizePageColumns(self: *Display, page_cols: *std.ArrayList(usize), usable_width: usize) !void {
+        const page_total = sumWidths(page_cols.items);
+        const page_borders = page_cols.items.len + 1;
+        const page_needed = page_total + page_borders;
+
+        if (page_needed < usable_width) {
+            const extra = usable_width - page_needed;
+            var remaining = extra;
+
+            for (page_cols.items, 0..) |ideal, i| {
+                const is_last = (i == page_cols.items.len - 1);
+                const add = if (is_last)
+                    remaining
+                else blk: {
+                    const prop = (ideal * extra) / page_total;
+                    remaining -= prop;
+                    break :blk prop;
+                };
+
+                try self.col_widths.append(self.allocator, ideal + add);
+            }
+        } else {
+            for (page_cols.items) |w| {
+                try self.col_widths.append(self.allocator, w);
             }
         }
     }
 
-    /// Sum all widths in an array
     fn sumWidths(widths: []const usize) usize {
         var sum: usize = 0;
         for (widths) |w| sum += w;
@@ -219,7 +238,6 @@ pub const Display = struct {
 
     fn isSearchMatch(row_num: usize, col_idx: usize, search_state: *const SearchState) bool {
         if (!search_state.active or search_state.matches.items.len == 0) return false;
-
         for (search_state.matches.items) |match| {
             if (match.row == row_num and match.col == col_idx) return true;
         }
@@ -228,14 +246,12 @@ pub const Display = struct {
 
     fn rowHasSearchMatch(row_num: usize, search_state: *const SearchState) bool {
         if (!search_state.active or search_state.matches.items.len == 0) return false;
-
         for (search_state.matches.items) |match| {
             if (match.row == row_num) return true;
         }
         return false;
     }
 
-    /// Render the top border line
     fn renderTopBorder(self: *Display, col_widths: []const usize) !void {
         try self.stdout.write(BoxChars.top_left);
 
@@ -246,7 +262,6 @@ pub const Display = struct {
             try self.stdout.write(BoxChars.t_down);
         }
 
-        // Data columns
         for (col_widths, 0..) |width, i| {
             for (0..width) |_| {
                 try self.stdout.write(BoxChars.horizontal);
@@ -261,7 +276,6 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render the header row with column names
     fn renderHeaderRow(self: *Display, headers: []const []const u8, col_widths: []const usize) !void {
         try self.stdout.write(BoxChars.vertical);
 
@@ -293,7 +307,6 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render the separator between header and data
     fn renderHeaderSeparator(self: *Display, col_widths: []const usize) !void {
         try self.stdout.write(BoxChars.t_right);
 
@@ -304,7 +317,6 @@ pub const Display = struct {
             try self.stdout.write(BoxChars.cross);
         }
 
-        // Data columns
         for (col_widths, 0..) |width, i| {
             for (0..width) |_| {
                 try self.stdout.write(BoxChars.horizontal);
@@ -318,7 +330,6 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render a single data row
     fn renderDataRow(
         self: *Display,
         row_num: usize,
@@ -330,7 +341,6 @@ pub const Display = struct {
         const is_selected = (row_num == self.selected_row);
         const has_search_match = rowHasSearchMatch(row_num, search_state);
 
-        // Apply row styling
         if (is_selected) {
             try self.stdout.setBgColor(Colors.SELECTED_BG);
             try self.stdout.setColor(Colors.SELECTED_FG);
@@ -342,17 +352,13 @@ pub const Display = struct {
 
         try self.stdout.write(BoxChars.vertical);
 
-        // Count column (conditional)
         if (self.show_count) {
             try self.stdout.print(" {d:<[1]} ", .{ row_num + 1, COUNT_COL_WIDTH - 2 });
             try self.stdout.write(BoxChars.vertical);
         }
 
-        // Data cells
         for (cells, col_widths, 0..) |cell, width, col_idx| {
             const content_width = width - CELL_PADDING;
-
-            // Check if this cell matches the search
             const is_match = isSearchMatch(row_num, col_start + col_idx, search_state);
 
             if (is_match) {
@@ -378,7 +384,6 @@ pub const Display = struct {
 
             if (is_match) {
                 try self.stdout.resetStyle();
-                // Reapply row background if needed
                 if (is_selected) {
                     try self.stdout.setBgColor(Colors.SELECTED_BG);
                     try self.stdout.setColor(Colors.SELECTED_FG);
@@ -397,7 +402,6 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render the bottom border line
     fn renderBottomBorder(self: *Display, col_widths: []const usize) !void {
         try self.stdout.write(BoxChars.bottom_left);
 
@@ -408,7 +412,6 @@ pub const Display = struct {
             try self.stdout.write(BoxChars.t_up);
         }
 
-        // Data columns
         for (col_widths, 0..) |width, i| {
             for (0..width) |_| {
                 try self.stdout.write(BoxChars.horizontal);
@@ -423,7 +426,6 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render status bar at bottom of screen
     fn renderStatusBar(self: *Display, search_state: *const SearchState, input_buffer: []const u8) !void {
         const total_rows = self.csv.table.items.len;
         const total_col_pages = self.col_pages.items.len;
@@ -466,13 +468,12 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Render search input line
     fn renderSearchInput(self: *Display, input_buffer: []const u8) !void {
         try self.stdout.moveTo(self.tSize.rows, 1);
         try self.stdout.setBgColor(Colors.STATUS_BG);
         try self.stdout.setColor(Colors.STATUS_FG);
 
-        try self.stdout.print("/", .{});
+        //try self.stdout.print("/", .{});
         try self.stdout.write(input_buffer);
         try self.stdout.print("\x1b[K", .{});
 
@@ -480,8 +481,20 @@ pub const Display = struct {
         try self.stdout.flush();
     }
 
-    /// Main render function
-    pub fn render(self: *Display, search_state: *const SearchState, input_buffer: []const u8) !void {
+    fn renderColonInput(self: *Display, input_buffer: []const u8) !void {
+        try self.stdout.moveTo(self.tSize.rows, 1);
+        try self.stdout.setBgColor(Colors.STATUS_BG);
+        try self.stdout.setColor(Colors.STATUS_FG);
+
+        // Show the colon input
+        try self.stdout.write(input_buffer);
+        try self.stdout.print("\x1b[K", .{});
+
+        try self.stdout.resetStyle();
+        try self.stdout.flush();
+    }
+
+    pub fn render(self: *Display, search_state: *const SearchState, input_buffer: []const u8, input_mode: InputMode) !void {
         try self.stdout.clear();
         try self.stdout.hideCursor();
 
@@ -489,12 +502,10 @@ pub const Display = struct {
         const col_widths = self.col_widths.items[col_start..col_end];
         const headers = self.csv.headers.items[col_start..col_end];
 
-        // Draw the table structure
         try self.renderTopBorder(col_widths);
         try self.renderHeaderRow(headers, col_widths);
         try self.renderHeaderSeparator(col_widths);
 
-        // Draw data rows
         const data = self.csv.table.items;
         const row_start = self.visible_rows * self.row_page_idx;
         const row_end = @min(row_start + self.visible_rows, data.len);
@@ -506,10 +517,11 @@ pub const Display = struct {
 
         try self.renderBottomBorder(col_widths);
 
-        if (search_state.input_mode) {
-            try self.renderSearchInput(input_buffer);
-        } else {
-            try self.renderStatusBar(search_state, input_buffer);
+        // NEW: Check input_mode instead of search_state.input_mode
+        switch (input_mode) {
+            .search => try self.renderSearchInput(input_buffer),
+            .colon => try self.renderColonInput(input_buffer),
+            .none => try self.renderStatusBar(search_state, input_buffer),
         }
     }
 };
