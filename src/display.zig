@@ -35,7 +35,6 @@ pub const Display = struct {
     const MIN_COL_WIDTH: usize = 8;
     const MAX_COL_WIDTH: usize = 50;
     const CELL_PADDING: usize = 2;
-    const MIN_TERM_WIDTH: usize = 40;
     const MARGIN_COLS: usize = 2; // Minimal margin - just 1 column on each side
     const STATUS_ROWS: usize = 2;
 
@@ -106,11 +105,6 @@ pub const Display = struct {
     }
 
     fn calculateLayout(self: *Display) !void {
-        const term_width = self.tSize.cols;
-        if (term_width < MIN_TERM_WIDTH) {
-            return error.TermTooSmall;
-        }
-
         const usable_width = self.getUsableWidth();
         const num_cols = self.csv.col_max.items.len;
 
@@ -632,11 +626,17 @@ pub const Display = struct {
         try self.stdout.clear();
         try self.stdout.hideCursor();
 
+        if (mode == Mode.help) {
+            try self.renderHelp();
+            return;
+        }
+
         const col_start, const col_end = self.get_header_idxs();
         const col_widths = self.col_widths.items[col_start..col_end];
         const headers = self.csv.headers.items[col_start..col_end];
 
         try self.renderTopBorder(col_widths);
+
         try self.renderHeaderRow(headers, col_widths);
         try self.renderHeaderSeparator(col_widths);
 
@@ -655,7 +655,7 @@ pub const Display = struct {
             .search => try self.renderSearchInput(input_buffer),
             .colon => try self.renderColonInput(input_buffer),
             .normal => try self.renderStatusBar(search_state, input_buffer),
-            .help => try self.renderHelp(),
+            //.help => try self.renderHelp(),
             else => try self.renderStatusBar(search_state, input_buffer),
         }
     }

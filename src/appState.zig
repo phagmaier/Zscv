@@ -57,6 +57,9 @@ pub const AppState = struct {
                 }
                 return false;
             },
+            .question => {
+                return self.add_char('n');
+            },
 
             .n => {
                 return self.add_char('n');
@@ -116,6 +119,12 @@ pub const AppState = struct {
                 self.mode = Mode.colon;
                 self.string.clear();
                 //return self.add_char(':');
+                return true;
+            },
+
+            .question => {
+                self.mode = Mode.help;
+                self.string.clear();
                 return true;
             },
 
@@ -277,12 +286,23 @@ pub const AppState = struct {
                 return self.add_char(':');
             },
 
+            .question => {
+                return self.add_char('?');
+            },
+
             .char => |c| {
                 return self.add_char(c);
             },
 
             else => return false,
         }
+    }
+
+    pub fn handleHelpKey(self: *AppState) bool {
+        self.mode = Mode.normal;
+        self.search_state.cancelInput();
+        self.string.clear();
+        return true;
     }
 
     //add more commands here currently it just handles q

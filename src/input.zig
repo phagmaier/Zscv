@@ -20,6 +20,7 @@ pub const Key = union(enum) {
     escape,
     enter,
     backspace,
+    question,
     char: u8,
     unknown,
 };
@@ -69,9 +70,10 @@ pub const Input = struct {
                 'N' => Key.N,
                 '/' => Key.slash,
                 ':' => Key.colon,
-                0x1b => Key.escape, // ESC key
+                '?' => Key.question,
+                0x1b => Key.escape,
                 '\r', '\n' => Key.enter,
-                0x7f => Key.backspace, // Backspace
+                0x7f => Key.backspace,
                 else => {
                     // Check if it's a printable ASCII character
                     if (c >= 32 and c <= 126) {
